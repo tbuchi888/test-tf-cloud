@@ -129,18 +129,22 @@ resource "azurerm_linux_virtual_machine" "linuxvm1" {
 # You need to Base64 encode the value of custom_data.
   custom_data = base64encode(local.custom_data)
 
-#  You need to open port 22 because remote-exec requires an ssh connection to execute.
-  provisioner "remote-exec" {
-    inline = [
-      "ls -la /tmp > /tmp/test02_remoteexec.txt",
-    ]
-
-    connection {
-      host     = self.public_ip_address
-      user     = self.admin_username
-      password = self.admin_password
-    }
-  }
+#  Since the source IP address of the Terraform Cloud host seems to be fixed, comment out the following lines of provisioner for security reasons.
+#  
+#  You need to open port 22 because remote-exec requires an ssh connection to execute.  
+#  https://www.terraform.io/language/resources/provisioners/syntax#passing-data-into-virtual-machines-and-other-compute-resources  
+#  Note: Provisioners should only be used as a last resort. For most common situations there are better alternatives. For more information, see the sections above.  
+#  provisioner "remote-exec" {
+#    inline = [
+#      "ls -la /tmp > /tmp/test02_remoteexec.txt",
+#    ]
+#
+#    connection {
+#      host     = self.public_ip_address
+#      user     = self.admin_username
+#      password = self.admin_password
+#    }
+#  }
 }
 
 resource "azurerm_virtual_machine_extension" "example" {

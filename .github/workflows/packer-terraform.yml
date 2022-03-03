@@ -1,0 +1,125 @@
+name: build image via packer and deploy with terraform
+
+# When this action will be executed
+on:
+  # Automatically trigger it when detected changes in repo
+  # push:
+  #  branches:
+  #   - main
+  # pull_request:
+  # Allow mannually trigger 
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    name: 'packer'
+    runs-on: ubuntu-latest
+    # Use the Bash shell regardless whether the GitHub Actions runner is ubuntu-latest, macos-latest, or windows-latest
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      VAR_ENV_RESOURCE_GROUP: demo_packer_tf_custom_images_990
+      VAR_ENV_RESOURCE_GROUP_LOCATION: japaneast
+      VAR_ENV_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      VAR_ENV_CLIENT_SECRET:  ${{ secrets.ARM_CLIENT_SECRET }}
+      VAR_ENV_TENANT_ID:  ${{ secrets.ARM_TENANT_ID }}
+      VAR_ENV_SUBSCRIPTION_ID:  ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      VAR_ENV_IMAGE_NAME: my-ubuntu-20-04-nginx-via-pakcer-tf-${{ GITHUB.RUN_NUMBER }}
+      VAR_ENV_IMAGE_LOCATION: "Japan East"
+      
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Create resoucegroup
+      uses: azure/CLI@v1
+      with:
+        azcliversion: 2.30.0
+        inlineScript: |
+          echo "Create ResourceGroup"
+          az group create -n ${{ env.VAR_ENV_RESOURCE_GROUP }} -l ${{ env.VAR_ENV_RESOURCE_GROUP_LOCATION }}
+
+    # https://github.com/marketplace/actions/packer-github-actions
+    # fix backwards incompatibilities in template
+    - name: Fix Template
+      uses: hashicorp/packer-github-actions@master
+      with:
+        command: fix
+        target: packer-ubuntu-tmplate.json
+    # validate templates
+    - name: Validate Template
+      uses: hashicorp/packer-github-actions@master
+      with:
+        command: validate
+        arguments: -syntax-only
+        target: packer-ubuntu-tmplate.json
+    # build image
+    - name: Build Image
+      id: build-image-id
+      uses: hashicorp/packer-github-actions@master
+      with:
+        command: build
+        arguments: "-color=false -on-error=abort"
+        target: packer-ubuntu-tmplate.json
+      env:
+        PACKER_LOG: 1
+        
+  deploy:
+    needs: build
+    name: 'Terraform'
+    runs-on: ubuntu-latest
+    environment: production
+
+    # Use the Bash shell regardless whether the GitHub Actions runner is ubuntu-latest, macos-latest, or windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      ARM_SUBSCRIPTION_ID: ${{secrets.ARM_SUBSCRIPTION_ID}}
+      ARM_CLIENT_ID: ${{secrets.ARM_CLIENT_ID}}
+      ARM_CLIENT_SECRET: ${{secrets.ARM_CLIENT_SECRET}}
+      ARM_TENANT_ID: ${{secrets.ARM_TENANT_ID}}
+      TF_VAR_custom_image_resource_group_name: demo_packer_tf_custom_images_990
+      TF_VAR_custom_image_name: my-ubuntu-20-04-nginx-via-pakcer-tf-${{ GITHUB.RUN_NUMBER }}
+      TF_VAR_deploy_resource_group: demo_packer_tf_990
+      TF_VAR_deploy_location: japaneast
+      TF_VAR_tf_host_source_pip1: ${{secrets.YOUR_HOME_PIP}}
+
+    steps:
+    # Checkout the repository to the GitHub Actions runner
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    # Install the latest version of Terraform CLI
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v1
+
+    # Set the PIP of the execution host for Github actions to TF_VAR_tf_host_source_pip.
+    - name: Set TF_VAR_tf_host_source_pip
+      run: |
+        echo "TF_VAR_tf_host_source_pip2=`curl ifconfig.io`" >> $GITHUB_ENV
+
+    # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
+    - name: Terraform Init
+      run: |
+        cd terraform
+        terraform init
+      
+    # Generates an execution plan for Terraform
+    - name: Terraform Plan
+      run: |
+        cd terraform
+        terraform plan
+
+    # Build or change infrastructure according to Terraform configuration files
+    - name: Terraform Apply
+      run: |
+        cd terraform
+        terraform apply -auto-approve
